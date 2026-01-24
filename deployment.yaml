@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iis
+  namespace: iis
+  labels:
+    app: iis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iis
+  template:
+    metadata:
+      labels:
+        app: iis
+    spec:
+      nodeSelector:
+        kubernetes.io/os: windows
+      containers:
+        - name: iis
+          image: mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2022
+          command:
+            - powershell.exe
+            - -NoLogo
+            - -NoProfile
+            - -Command
+            - |
+              New-Item -Path "C:\inetpub\wwwroot\index.html" -ItemType File -Force | Out-Null
+
+              @'
+              <!doctype html>
+              <html>
+              <head>
+                <meta charset="utf-8" />
+                <title>IIS Kubn8s is running</title>
+                <style>
+                  body {
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    font-family: Arial, sans-serif;
+                    text-align: center;
+                  }
+                  img {
+                    width: 1000px;
+                    border: 2px solid #333;
+                    margin-top: 20px;
+                    max-width: 95vw;
+                    height: auto;
+                  }
+                </style>
+              </head>
+              <body>
+                <h1>IIS Kubn8s is running</h1>
+                <a href="https://static1.srcdn.com/wordpress/wp-content/uploads/2019/03/Dumb-Dumber-Quotes-Austria.jpg"
+                   target="_blank" rel="noopener">
+                  <img src="https://static1.srcdn.com/wordpress/wp-content/uploads/2019/03/Dumb-Dumber-Quotes-Austria.jpg"
+                       alt="IIS Image" />
+                </a>
+              </body>
+              </html>
+              '@ | Set-Content -Path "C:\inetpub\wwwroot\index.html" -Encoding UTF8
+
+              Start-Service W3SVC
+
+              # Tail IIS logs if they exist; avoid crash if folder empty initially
+              if (Test-Path "C:\inetpub\logs\LogFiles\W3SVC1\") {
+                Get-Content "C:\inetpub\logs\LogFiles\W3SVC1\u_ex*.log" -Wait
+              } else {
+                Write-Host "IIS log folder not created yet. Waiting..."
+                Start-Sleep -Seconds 10
+                Get-Content "C:\inetpub\logs\LogFiles\W3SVC1\u_ex*.log" -Wait
+              }
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              cpu: "1"
+              memory: "800Mi"
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iis
+  namespace: iis
+spec:
+  type: LoadBalancer
+  selector:
+    app: iis
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
